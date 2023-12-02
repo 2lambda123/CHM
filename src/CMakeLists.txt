@@ -416,13 +416,16 @@ if (BUILD_TESTS)
 			#    test_mesh.cpp
 			tests/test_regexptokenizer.cpp
 			#    test_daily.cpp
-            tests/test_triangulation.cpp)
+            tests/test_triangulation.cpp
+			tests/main.cpp
+)
 
 
 	set( GTEST_LINK
 			gtest
-			gtest_main
 			)
+
+
 
 	add_executable(
 			runUnitTests
@@ -432,6 +435,9 @@ if (BUILD_TESTS)
 			${LIBMAW_SRCS}
 			${TEST_SRCS}
 	)
+	set_target_properties(runUnitTests
+			PROPERTIES
+			COMPILE_FLAGS ${CHM_BUILD_FLAGS})
 
 	target_include_directories(runUnitTests PRIVATE ${HEADER_FILES} )
 
@@ -459,10 +465,33 @@ if (BUILD_TESTS)
 						DEPENDS runUnitTests
 						WORKING_DIRECTORY ${TEST_DIR})
 
-	if (NOT APPLE)
-		target_link_options(runUnitTests
-				PUBLIC "LINKER:--disable-new-dtags" )
+	if(BUILD_WITH_CONAN)
+		if(APPLE)
+			add_custom_command(TARGET runUnitTests POST_BUILD
+					#patch CHM to look for @rpath/ for all dylibs that aren't looking for @rpath
+					COMMAND bash -c "otool -l ${TEST_DIR}/runUnitTests | grep name | grep -v segname |  grep -v sectname | grep -v @rpath  | awk '{print $2}' | grep -v '^/' | while read x; do install_name_tool -change $x @rpath/`echo $x | grep -Eo '[a-zA-Z0-9_\.-]+\.dylib'` ${TEST_DIR}/runUnitTests; done"
+					#strip all LC_RPATH from our non-install binary
+					COMMAND bash -c "otool -l ${TEST_DIR}/runUnitTests | grep LC_RPATH -A2 | grep path | awk '{print $2}' | while read x; do install_name_tool -delete_rpath $x ${TEST_DIR}/runUnitTests; done"
+					#update LC_RPATH for our non-install binary
+					COMMAND bash -c "install_name_tool -add_rpath @executable_path/../lib ${TEST_DIR}/runUnitTests"
+					VERBATIM)
+		else()
+			target_link_options(runUnitTests
+					PUBLIC "LINKER:--disable-new-dtags" )
+
+			add_custom_command(TARGET runUnitTests POST_BUILD
+					#			# Some .so will have runpaths, some do not. Just remove them all. The RUNPATHS override the binarie's rpath (I don't know why)
+					COMMAND bash -c "cd ${CMAKE_BINARY_DIR}/lib ; ls | while read x; do patchelf --remove-rpath $x; done"
+					#
+					#			# RPATH correctly works, so unlikely to be needed but kept just in case.
+					#			# This removes all runpaths , and then here we will patch each .so to have the correct RUNPATH
+					COMMAND bash -c "cd ${CMAKE_BINARY_DIR}/lib ; ls | while read x; do patchelf --set-rpath '\$ORIGIN/../lib' $x; done"
+
+					VERBATIM
+					)
+		endif()
 	endif()
+
 	#copy the data files from test_data to the dir that holds the test binary
 	add_custom_command(TARGET runUnitTests PRE_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_directory

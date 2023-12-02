@@ -433,7 +433,7 @@ void core::config_forcing(pt::ptree &value)
         }
 
         // this delegates all filter responsibility to metdata from now on
-        _metdata->load_from_netcdf(file, _mesh->_bounding_box,netcdf_filters);
+        _metdata->load_from_netcdf(file, &_mesh->_bounding_box,netcdf_filters);
         nstations = _metdata->nstations();
     } else
     {
@@ -1366,6 +1366,15 @@ void core::init(int argc, char **argv)
      * The rest may be optional, and will override the defaults.
      */
     config_modules(cfg.get_child("modules"), cfg.get_child("config"), cmdl_options.get<3>(), cmdl_options.get<4>());
+
+    //update the internal config ptree so when we right it out for auditing
+    cfg.erase( "modules") ;
+
+    pt::ptree array;
+    for(auto& itr : get_active_module_list())
+        array.push_back(pt::ptree::value_type("", itr.first->ID));
+
+    cfg.put_child("modules", array);
 
     // This has the delayed param load enabled, so mesh path is saved to _mesh_path which is used to load
     // the params latter
@@ -2614,3 +2623,7 @@ void core::populate_distributed_station_lists()
 #endif
 }
 
+std::vector< std::pair<module,size_t> >& core::get_active_module_list()
+{
+    return _modules;
+}
